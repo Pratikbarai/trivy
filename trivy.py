@@ -325,7 +325,7 @@ def run_trivy(path, name, timestamp, mode="repo"):
     ]
     # Don't pull images from registry - use local images only
     if mode == "image":
-        cmd.append("--pull=never")
+        cmd.append(" ")
 
     cmd.append(path)
 
@@ -766,7 +766,7 @@ def run_sbom(path, name, timestamp, mode="repo"):
     ]
     # Don't pull images from registry - use local images only
     if mode == "image":
-        cdx_cmd.append("--pull=never")
+        cdx_cmd.append(" ")
 
     cdx_cmd.append(path)
     code, output = run(cdx_cmd,timeout=3600)
@@ -819,7 +819,7 @@ def run_sbom(path, name, timestamp, mode="repo"):
     ]
         # Don't pull images from registry - use local images only
     if mode == "image":
-        spdx_cmd.append("--pull=never")
+        spdx_cmd.append(" ")
 
     spdx_cmd.append(path)
     code_spdx, output_spdx = run(spdx_cmd,timeout=3600)
