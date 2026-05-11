@@ -738,10 +738,11 @@ def run_sbom(path, name, timestamp, mode="repo"):
 
     # --- CycloneDX JSON SBOM ---
     cdx_file = f"sbom_reports/{name}_{timestamp}_sbom.cdx.json"
-    cdx_cmd  = [
+    cdx_cmd = [
         "trivy",
         mode,
-        "--format",     "cyclonedx",
+        "--scanners", TRIVY_SCANNERS,  
+        "--format", "cyclonedx",
         "--no-progress",
         "-o", cdx_file,
     ]
@@ -903,6 +904,11 @@ def scan_target(src):
 
     # Generate HTML report (uses already-parsed data — no second Trivy run)
     html_result = run_trivy_html_report(path, name, timestamp, mode=trivy_mode, t_result=t_result)
+    # In run_trivy_html_report, after writing the file:
+    if os.path.getsize(html_file) < 100:  # Suspiciously small
+        log.warning("HTML report seems empty or very small: %s bytes", 
+                    os.path.getsize(html_file))
+
 
     # Generate SBOM
     sbom_result = run_sbom(path, name, timestamp, mode=trivy_mode)
