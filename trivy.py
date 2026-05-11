@@ -902,11 +902,22 @@ def scan_target(src):
     trivy_blocking, trivy_block_reasons = trivy_is_blocking(t_result)
     t_result["trivy_block_reasons"] = trivy_block_reasons
 
-    # Generate HTML report (uses already-parsed data — no second Trivy run)
+        # Generate HTML report (uses already-parsed data — no second Trivy run)
     html_result = run_trivy_html_report(path, name, timestamp, mode=trivy_mode, t_result=t_result)
-    # In run_trivy_html_report, after writing the file:
-    if os.path.getsize(html_file) < 100:  # Suspiciously small
-        log.warning("HTML report seems empty or very small: %s bytes", 
+    
+    # Check if HTML report was generated properly
+    if html_result.get("html_report"):
+        html_file_path = html_result["html_report"]
+        if os.path.exists(html_file_path):
+            html_size = os.path.getsize(html_file_path)
+            if html_size < 100:
+                log.warning("HTML report seems empty or very small: %s bytes", html_size)
+            else:
+                log.info("HTML report size: %s bytes", html_size)
+        else:
+            log.error("HTML report file not found: %s", html_file_path)
+    elif html_result.get("error"):
+        log.error("HTML report generation failed: %s", html_result["error"])
                     os.path.getsize(html_file))
 
 
