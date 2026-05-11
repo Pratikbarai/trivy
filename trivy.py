@@ -893,11 +893,12 @@ def trivy_has_findings(t_result):
 # ---------------------------------------------------------
 # Scan a single repository, directory, or Docker image
 # ---------------------------------------------------------
-def scan_target(src):
+def scan_target(src, forced_mode=None):
     timestamp = datetime.now().isoformat().replace(":", "-")
 
-    # Detect Docker image vs repo
-    if is_docker_image(src):
+    # forced_mode="image" when caller used --image explicitly;
+    # otherwise fall back to heuristic detection.
+    if forced_mode == "image" or is_docker_image(src):
         log.info("Mode: Docker image -- %s", src)
         path = src
         name = src.replace(":", "_").replace("/", "_")
@@ -1007,7 +1008,10 @@ def parallel_scan(sources, workers):
     results = []
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_to_src = {executor.submit(scan_target, s): s for s in sources}
+        future_to_src = {
+            executor.submit(scan_target, src, forced_mode): src
+            for src, forced_mode in sources
+        }
 
         for future in as_completed(future_to_src):
             src = future_to_src[future]
@@ -1034,7 +1038,8 @@ def main():
         description="DevSecOps scanner -- Trivy (vuln, secret, config) with HTML reports and SBOM"
     )
     parser.add_argument("--repo",  nargs="*", help="Git repository URLs")
-    parser.add_argument("--path",  nargs="*", help="Local directory paths or Docker images")
+    parser.add_argument("--path",  nargs="*", help="Local directory paths")
+    parser.add_argument("--image", nargs="*", help="Docker image references (e.g. myimage:latest)")
     parser.add_argument(
         "--output",
         default="security_scan_results.json",
@@ -1052,14 +1057,18 @@ def main():
         log.error("--parallel must be between 1 and %d", MAX_PARALLEL_WORKERS)
         sys.exit(2)
 
+    # Sources are tagged tuples (src, forced_mode) so scan_target can
+    # honour explicit --image without relying on heuristics.
     sources = []
     if args.repo:
-        sources.extend(args.repo)
+        sources.extend((s, None)    for s in args.repo)
     if args.path:
-        sources.extend(args.path)
+        sources.extend((s, None)    for s in args.path)
+    if args.image:
+        sources.extend((s, "image") for s in args.image)
 
     if not sources:
-        log.error("No input provided. Use --repo or --path.")
+        log.error("No input provided. Use --repo, --path, or --image.")
         sys.exit(2)
 
     log.info("Configuration loaded:")
