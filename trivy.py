@@ -869,6 +869,9 @@ def trivy_has_findings(t_result):
 # ---------------------------------------------------------
 # Scan a single repository, directory, or Docker image
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# Scan a single repository, directory, or Docker image
+# ---------------------------------------------------------
 def scan_target(src):
     timestamp = datetime.now().isoformat().replace(":", "-")
 
@@ -902,7 +905,7 @@ def scan_target(src):
     trivy_blocking, trivy_block_reasons = trivy_is_blocking(t_result)
     t_result["trivy_block_reasons"] = trivy_block_reasons
 
-        # Generate HTML report (uses already-parsed data — no second Trivy run)
+    # Generate HTML report (uses already-parsed data — no second Trivy run)
     html_result = run_trivy_html_report(path, name, timestamp, mode=trivy_mode, t_result=t_result)
     
     # Check if HTML report was generated properly
@@ -918,8 +921,6 @@ def scan_target(src):
             log.error("HTML report file not found: %s", html_file_path)
     elif html_result.get("error"):
         log.error("HTML report generation failed: %s", html_result["error"])
-                    os.path.getsize(html_file))
-
 
     # Generate SBOM
     sbom_result = run_sbom(path, name, timestamp, mode=trivy_mode)
