@@ -160,11 +160,13 @@ def run(cmd, timeout=3600):
     try:
         result = subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=timeout,
         )
-        return result.returncode, result.stdout + result.stderr
+        stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
+        stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+        return result.returncode, stdout + stderr
     except subprocess.TimeoutExpired:
         log.error("Command timed out: %s", " ".join(cmd))
         return 99, "TIMEOUT"
