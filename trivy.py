@@ -133,7 +133,7 @@ TRIVY_SEVERITIES = ",".join(USER_CONFIG["severities"])
 BLOCKING_SEVERITIES = set(USER_CONFIG["blocking_severities"])
 
 # Trivy scanner types included in every scan
-TRIVY_SCANNERS = "vuln,secret,config"
+TRIVY_SCANNERS = "vuln,secret,misconfig"
 
 # ---------------------------------------------------------
 # Trivy vulnerability class constants
@@ -145,11 +145,13 @@ TRIVY_CLASS_LANG = "lang-pkgs"
 # Execute a shell command safely with timeout handling
 # ---------------------------------------------------------
 def run(cmd, timeout=3600):
+    
     try:
         result = subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
             timeout=timeout,
         )
         return result.returncode, result.stdout + result.stderr
@@ -304,14 +306,9 @@ def run_trivy(path, name, timestamp, mode="repo"):
         "--scanners", TRIVY_SCANNERS,
         "--severity", TRIVY_SEVERITIES,
         "--format", "json",
-        "--quiet",
-        "--no-progress","--timeout", "60m",
+        "--no-progress", "--timeout", "60m",
         "-o", report_file,
-        
     ]
-    # Don't pull images from registry - use local images only
-    if mode == "image":
-        cmd.append("--pull=never")
 
     cmd.append(path)
 
@@ -745,14 +742,9 @@ def run_sbom(path, name, timestamp, mode="repo"):
         "trivy",
         mode,
         "--format",     "cyclonedx",
-        "--quiet",
         "--no-progress",
         "-o", cdx_file,
-        
     ]
-    # Don't pull images from registry - use local images only
-    if mode == "image":
-        cdx_cmd.append("--pull=never")
 
     cdx_cmd.append(path)
     code, output = run(cdx_cmd,timeout=3600)
@@ -798,14 +790,9 @@ def run_sbom(path, name, timestamp, mode="repo"):
         "trivy",
         mode,
         "--format",     "spdx-json",
-        "--quiet",
         "--no-progress",
         "-o", spdx_file,
-        
     ]
-        # Don't pull images from registry - use local images only
-    if mode == "image":
-        spdx_cmd.append("--pull=never")
 
     spdx_cmd.append(path)
     code_spdx, output_spdx = run(spdx_cmd,timeout=3600)
