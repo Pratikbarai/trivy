@@ -132,7 +132,19 @@ USER_CONFIG = load_user_config()
 TRIVY_SEVERITIES = ",".join(USER_CONFIG["severities"])
 BLOCKING_SEVERITIES = set(USER_CONFIG["blocking_severities"])
 
+# ---------------------------------------------------------
+# Report output base directory
+# In GitLab CI, CI_PROJECT_DIR is the repo root that the
+# runner uses as its working directory — artifacts paths in
+# .gitlab-ci.yml are relative to it, so we must write there.
+# Fall back to cwd for local runs.
+# ---------------------------------------------------------
+_PROJECT_DIR = os.environ.get("CI_PROJECT_DIR", os.getcwd())
+TRIVY_REPORT_DIR = os.path.join(_PROJECT_DIR, "trivy_reports")
+SBOM_REPORT_DIR  = os.path.join(_PROJECT_DIR, "sbom_reports")
+
 # Trivy scanner types included in every scan
+# Note: 'config' was renamed to 'misconfig' in Trivy v0.38+
 TRIVY_SCANNERS = "vuln,secret,misconfig"
 
 # ---------------------------------------------------------
@@ -145,13 +157,11 @@ TRIVY_CLASS_LANG = "lang-pkgs"
 # Execute a shell command safely with timeout handling
 # ---------------------------------------------------------
 def run(cmd, timeout=3600):
-    
     try:
         result = subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
+            capture_output=True,
+            text=True,
             timeout=timeout,
         )
         return result.returncode, result.stdout + result.stderr
@@ -292,13 +302,13 @@ def _parse_trivy_result(scan_result, counts, top_vulns, top_secrets,
             })
 
 # ---------------------------------------------------------
-# Run Trivy scan with vuln + secret + config scanners
+# Run Trivy scan with vuln + secret + misconfig scanners
 # ---------------------------------------------------------
 def run_trivy(path, name, timestamp, mode="repo"):
-    os.makedirs("trivy_reports", exist_ok=True)
-    
+    os.makedirs(TRIVY_REPORT_DIR, exist_ok=True)
+
     # JSON report for internal processing
-    report_file = f"trivy_reports/{name}_{timestamp}.json"
+    report_file = os.path.join(TRIVY_REPORT_DIR, f"{name}_{timestamp}.json")
 
     cmd = [
         "trivy",
@@ -306,9 +316,14 @@ def run_trivy(path, name, timestamp, mode="repo"):
         "--scanners", TRIVY_SCANNERS,
         "--severity", TRIVY_SEVERITIES,
         "--format", "json",
-        "--no-progress", "--timeout", "60m",
+        "--quiet",
+        "--no-progress","--timeout", "60m",
         "-o", report_file,
+        
     ]
+    # Don't pull images from registry - use local images only
+    if mode == "image":
+        cmd.append("--pull=never")
 
     cmd.append(path)
 
@@ -458,8 +473,8 @@ def run_trivy_html_report(path, name, timestamp, mode="repo", t_result=None):
     import html as _html
     from datetime import datetime as _dt
 
-    os.makedirs("trivy_reports", exist_ok=True)
-    html_file = f"trivy_reports/{name}_{timestamp}_report.html"
+    os.makedirs(TRIVY_REPORT_DIR, exist_ok=True)
+    html_file = os.path.join(TRIVY_REPORT_DIR, f"{name}_{timestamp}_report.html")
 
     result = {"html_report": None, "error": None}
 
@@ -725,7 +740,7 @@ def run_trivy_html_report(path, name, timestamp, mode="repo", t_result=None):
 # ---------------------------------------------------------
 def run_sbom(path, name, timestamp, mode="repo"):
     """Generate Software Bill of Materials using Trivy."""
-    os.makedirs("sbom_reports", exist_ok=True)
+    os.makedirs(SBOM_REPORT_DIR, exist_ok=True)
 
     result = {
         "cyclonedx_file":   None,
@@ -737,15 +752,19 @@ def run_sbom(path, name, timestamp, mode="repo"):
     }
 
     # --- CycloneDX JSON SBOM ---
-    cdx_file = f"sbom_reports/{name}_{timestamp}_sbom.cdx.json"
-    cdx_cmd = [
+    cdx_file = os.path.join(SBOM_REPORT_DIR, f"{name}_{timestamp}_sbom.cdx.json")
+    cdx_cmd  = [
         "trivy",
         mode,
-        "--scanners", TRIVY_SCANNERS,  
-        "--format", "cyclonedx",
+        "--format",     "cyclonedx",
+        "--quiet",
         "--no-progress",
         "-o", cdx_file,
+        
     ]
+    # Don't pull images from registry - use local images only
+    if mode == "image":
+        cdx_cmd.append("--pull=never")
 
     cdx_cmd.append(path)
     code, output = run(cdx_cmd,timeout=3600)
@@ -786,14 +805,19 @@ def run_sbom(path, name, timestamp, mode="repo"):
         log.warning("Could not parse CycloneDX SBOM for '%s': %s", name, exc)
 
     # --- SPDX JSON SBOM (non-fatal if unsupported by Trivy version) ---
-    spdx_file = f"sbom_reports/{name}_{timestamp}_sbom.spdx.json"
+    spdx_file = os.path.join(SBOM_REPORT_DIR, f"{name}_{timestamp}_sbom.spdx.json")
     spdx_cmd  = [
         "trivy",
         mode,
         "--format",     "spdx-json",
+        "--quiet",
         "--no-progress",
         "-o", spdx_file,
+        
     ]
+        # Don't pull images from registry - use local images only
+    if mode == "image":
+        spdx_cmd.append("--pull=never")
 
     spdx_cmd.append(path)
     code_spdx, output_spdx = run(spdx_cmd,timeout=3600)
@@ -869,9 +893,6 @@ def trivy_has_findings(t_result):
 # ---------------------------------------------------------
 # Scan a single repository, directory, or Docker image
 # ---------------------------------------------------------
-# ---------------------------------------------------------
-# Scan a single repository, directory, or Docker image
-# ---------------------------------------------------------
 def scan_target(src):
     timestamp = datetime.now().isoformat().replace(":", "-")
 
@@ -907,20 +928,6 @@ def scan_target(src):
 
     # Generate HTML report (uses already-parsed data — no second Trivy run)
     html_result = run_trivy_html_report(path, name, timestamp, mode=trivy_mode, t_result=t_result)
-    
-    # Check if HTML report was generated properly
-    if html_result.get("html_report"):
-        html_file_path = html_result["html_report"]
-        if os.path.exists(html_file_path):
-            html_size = os.path.getsize(html_file_path)
-            if html_size < 100:
-                log.warning("HTML report seems empty or very small: %s bytes", html_size)
-            else:
-                log.info("HTML report size: %s bytes", html_size)
-        else:
-            log.error("HTML report file not found: %s", html_file_path)
-    elif html_result.get("error"):
-        log.error("HTML report generation failed: %s", html_result["error"])
 
     # Generate SBOM
     sbom_result = run_sbom(path, name, timestamp, mode=trivy_mode)
